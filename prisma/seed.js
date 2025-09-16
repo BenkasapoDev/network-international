@@ -6,121 +6,139 @@ async function main() {
     await prisma.installmentPlan.createMany({
         data: [
             {
-                planNumber: '00100',
-                planName: '3 Month Plan',
-                numberOfPortions: 3,
-                interestRate: 5.0,
-                isActive: true
+                installmentPlanId: '00100',
+                totalAmount: 1000.00,
+                months: 3,
+                sourceAccount: 'ACC001',
+                destinationAccount: 'ACC002',
+                status: 'ACTIVE'
             },
             {
-                planNumber: '00166',
-                planName: '6 Month Plan',
-                numberOfPortions: 6,
-                interestRate: 8.0,
-                isActive: true
+                installmentPlanId: '00166',
+                totalAmount: 2000.00,
+                months: 6,
+                sourceAccount: 'ACC001',
+                destinationAccount: 'ACC003',
+                status: 'ACTIVE'
             },
             {
-                planNumber: '00112',
-                planName: '12 Month Plan',
-                numberOfPortions: 12,
-                interestRate: 12.0,
-                isActive: true
+                installmentPlanId: '00112',
+                totalAmount: 5000.00,
+                months: 12,
+                sourceAccount: 'ACC001',
+                destinationAccount: 'ACC004',
+                status: 'ACTIVE'
             }
         ],
         skipDuplicates: true
     })
 
-    // Create sample customer
-    const customer = await prisma.customer.upsert({
-        where: { id: 'CUST001' },
+    // Create sample client
+    const client = await prisma.client.upsert({
+        where: { externalClientId: 'EXT-SEED-001' },
         update: {},
         create: {
-            id: 'CUST001',
-            bankCode: '982',
-            externalClientNumber: 'EXT001',
-            cardName: 'JOHN DOE',
-            cardType: 'CREDIT'
+            clientId: 'CLIENT001',
+            externalClientId: 'EXT-SEED-001',
+            firstName: 'John',
+            lastName: 'Doe',
+            legalName: 'John Michael Doe',
+            email: 'john.doe@example.com',
+            phone: '+971501234567'
         }
     })
 
-    // Create or update personal details
-    await prisma.customerPersonalDetails.upsert({
-        where: { customerId: customer.id },
-        update: {
-            gender: 'M',
-            title: 'Mr',
-            firstName: 'JOHN',
-            lastName: 'DOE',
-            citizenship: 'UAE',
-            dateOfBirth: new Date('1990-01-01'),
-            language: 'ENG'
-        },
+    // Create personal details
+    await prisma.personalDetails.upsert({
+        where: { clientId: client.id },
+        update: {},
         create: {
-            customerId: customer.id,
+            clientId: client.id,
+            firstName: 'John',
+            lastName: 'Doe',
             gender: 'M',
-            title: 'Mr',
-            firstName: 'JOHN',
-            lastName: 'DOE',
+            title: 'MR',
+            middleName: 'Michael',
             citizenship: 'UAE',
+            maritalStatus: 'Single',
             dateOfBirth: new Date('1990-01-01'),
-            language: 'ENG'
+            placeOfBirth: 'Dubai',
+            language: 'ENG',
+            motherName: 'Jane Doe'
         }
     })
 
-    // Create or update contact details
-    await prisma.customerContactDetails.upsert({
-        where: { customerId: customer.id },
-        update: {
-            mobilePhone: '+971501234567',
-            email: 'john.doe@example.com'
-        },
+    // Create contact details
+    await prisma.contactDetails.upsert({
+        where: { clientId: client.id },
+        update: {},
         create: {
-            customerId: customer.id,
+            clientId: client.id,
             mobilePhone: '+971501234567',
+            homePhone: '+97142345678',
             email: 'john.doe@example.com'
+        }
+    })
+
+    // Create address
+    await prisma.address.create({
+        data: {
+            clientId: client.id,
+            addressLine1: '123 Main Street',
+            addressType: 'PERMANENT',
+            addressLine2: 'Apt 4B',
+            city: 'Dubai',
+            country: 'ARE',
+            zip: '12345',
+            state: 'Dubai',
+            email: 'john.doe@example.com',
+            phone: '+971501234567'
+        }
+    })
+
+    // Create employment details
+    await prisma.employmentDetails.upsert({
+        where: { clientId: client.id },
+        update: {},
+        create: {
+            clientId: client.id,
+            employerName: 'Tech Company Ltd',
+            income: 15000.00,
+            occupation: 'Software Engineer'
         }
     })
 
     // Create account
     const account = await prisma.account.upsert({
-        where: { accountNumber: 'ACC001' },
+        where: { accountIdentifier: 'ACC-SEED-001' },
         update: {},
         create: {
-            accountNumber: 'ACC001',
-            customerId: customer.id,
-            branchCode: '001',
-            productCode: 'PROD001',
+            accountIdentifier: 'ACC-SEED-001',
+            clientId: client.id,
             currency: 'AED',
-            accountType: 'CURRENT',
-            accountRole: 'PRIMARY'
+            status: 'ACTIVE',
+            openedAt: new Date()
         }
     })
 
     // Create card
-    const card = await prisma.card.upsert({
-        where: { id: 'CARD001' },
-        update: {},
-        create: {
-            id: 'CARD001',
-            identifierType: 'CONTRACT_NUMBER',
-            customerId: customer.id,
-            accountNumber: account.accountNumber,
-            institutionId: '982',
-            cardholderName: 'JOHN DOE',
+    await prisma.card.create({
+        data: {
+            clientId: client.id,
+            accountId: account.id,
+            externalCardId: 'CARD-SEED-001',
+            maskedCardNumber: '1234****5678',
             productCode: 'PROD001',
-            cardRole: 'P',
-            currency: 'AED',
-            virtualIndicator: 'P',
-            expiryDate: '2025',
-            sequenceNumber: '01',
-            maskedPan: '1234****5678',
-            dateOpen: new Date(),
-            activationDate: new Date()
+            productName: 'Premium Credit Card',
+            cardRole: 'PRIMARY',
+            isVirtual: false,
+            cardExpiryDate: '1225',
+            status: 'ACTIVE'
         }
     })
 
     console.log('Seed data created successfully!')
-    console.log({ customer, account, card })
+    console.log({ client, account })
 }
 
 main()

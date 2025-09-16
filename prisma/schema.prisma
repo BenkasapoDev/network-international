@@ -10,60 +10,208 @@ datasource db {
 }
 
 model Client {
+  id               String   @id @default(uuid())
+  clientId         String?  @unique
+  externalClientId String?  @unique
+  firstName        String?
+  lastName         String?
+  legalName        String?
+  email            String?  @unique
+  phone            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  accounts          Account[]
+  cards             Card[]
+  contracts         Contract[]
+  loyalty           LoyaltyBalance[]
+  installments      InstallmentPlan[]
+  contactDetails    ContactDetails?
+  personalDetails   PersonalDetails?
+  addressRecords    Address[]
+  identityDocuments IdentityDocument[]
+  employmentDetails EmploymentDetails?
+  customFields      CustomField[]
+  clientIds         ClientId[]
+}
+
+model ClientId {
+  id        String   @id @default(uuid())
+  value     String?
+  type      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+
+  qualifiers ClientIdQualifier[]
+}
+
+model ClientIdQualifier {
+  id        String   @id @default(uuid())
+  value     String?
+  type      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientId   ClientId @relation(fields: [clientIdId], references: [id])
+  clientIdId String
+}
+
+model ContactDetails {
+  id          String   @id @default(uuid())
+  mobilePhone String?
+  homePhone   String?
+  workPhone   String?
+  email       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String @unique
+}
+
+model PersonalDetails {
+  id            String    @id @default(uuid())
+  firstName     String?
+  lastName      String?
+  gender        String?
+  title         String?
+  middleName    String?
+  citizenship   String?
+  maritalStatus String?
+  dateOfBirth   DateTime?
+  placeOfBirth  String?
+  language      String?
+  motherName    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String @unique
+}
+
+model Address {
+  id           String   @id @default(uuid())
+  addressLine1 String?
+  addressType  String? // 'PERMANENT' or 'RESIDENT'
+  addressLine2 String?
+  addressLine3 String?
+  addressLine4 String?
+  email        String?
+  phone        String?
+  city         String?
+  country      String?
+  zip          String?
+  state        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+}
+
+model IdentityDocument {
   id         String    @id @default(uuid())
-  externalId String?   @unique
-  firstName  String?
-  lastName   String?
-  legalName  String?
-  email      String?   @unique
-  phone      String?
+  type       String?
+  number     String?
+  expiryDate DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  accounts   Account[]
-  cards      Card[]
-  contracts  Contract[]
-  loyalty    LoyaltyBalance[]
-  installments InstallmentPlan[]
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
+}
+
+model EmploymentDetails {
+  id           String   @id @default(uuid())
+  employerName String?
+  income       Decimal? @db.Decimal(18, 2)
+  occupation   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String @unique
+}
+
+model CustomField {
+  id        String   @id @default(uuid())
+  key       String?
+  value     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String
 }
 
 model Account {
-  id                 String   @id @default(uuid())
-  accountIdentifier  String   @unique
-  currency           String?  @db.Char(3)
-  status             String?
-  openedAt           DateTime?
-  metadata           Json?
-  createdAt          DateTime @default(now())
+  id                String    @id @default(uuid())
+  accountNumber     String    @unique
+  externalAccountId String?   @unique
+  productCode       String?
+  profileCode       String?
+  branchCode        String?
+  currency          String?   @db.Char(3)
+  status            String?
+  openedAt          DateTime?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
 
-  client   Client?   @relation(fields: [clientId], references: [id])
+  client   Client? @relation(fields: [clientId], references: [id])
   clientId String?
 
-  cards        Card[]
-  transactions Transaction[]
+  cards         Card[]
+  transactions  Transaction[]
+  creditOptions CreditOptions?
+  debitOptions  DebitOptions?
+}
+
+model CreditOptions {
+  id                String   @id @default(uuid())
+  creditLimitAmount Decimal? @db.Decimal(18, 2)
+  billingDay        String?
+  directDebitNumber String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String  @unique
+}
+
+model DebitOptions {
+  id          String   @id @default(uuid())
+  accountType String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String  @unique
 }
 
 model Card {
-  id                String   @id @default(uuid())
-  cardGuid          String?
-  externalCardId    String?
-  maskedCardNumber  String?
-  productCode       String?
-  productBin        String?
-  productName       String?
-  cardRole          String?
-  isVirtual         Boolean  @default(false)
-  cardExpiryDate    String?  // e.g. "2812"
-  cardDateOpen      DateTime?
+  id                 String    @id @default(uuid())
+  cardGuid           String?
+  externalCardId     String?
+  maskedCardNumber   String?
+  productCode        String?
+  productBin         String?
+  productName        String?
+  cardRole           String?
+  isVirtual          Boolean   @default(false)
+  cardExpiryDate     String? // e.g. "2812"
+  cardDateOpen       DateTime?
   cardActivationDate DateTime?
-  status            String?
-  customFields      Json?
-  createdAt         DateTime @default(now())
+  status             String?
+  customFields       Json?
+  createdAt          DateTime  @default(now())
 
   account   Account? @relation(fields: [accountId], references: [id])
   accountId String?
 
-  client   Client?  @relation(fields: [clientId], references: [id])
+  client   Client? @relation(fields: [clientId], references: [id])
   clientId String?
 
   transactions Transaction[]
@@ -72,46 +220,46 @@ model Card {
 }
 
 model Transaction {
-  id                   String   @id @default(uuid())
-  maskedPan            String?
-  cardIdentifierType   String?
-  postDate             DateTime?
-  transactionDate      DateTime?
-  debitCreditFlag      Boolean?
-  responseCode         String?
-  description          String?
-  transactionRefNumber String?
-  transactionId        String?
-  transactionCode      String?
-  transactionType      String?
-  currency             String?  @db.Char(3)
-  amount               Decimal? @db.Decimal(18, 4)
-  sourceCurrency       String?  @db.Char(3)
-  sourceAmount         Decimal? @db.Decimal(18, 4)
-  authCode             String?
-  merchantId           String?
+  id                    String    @id @default(uuid())
+  maskedPan             String?
+  cardIdentifierType    String?
+  postDate              DateTime?
+  transactionDate       DateTime?
+  debitCreditFlag       Boolean?
+  responseCode          String?
+  description           String?
+  transactionRefNumber  String?
+  transactionId         String?
+  transactionCode       String?
+  transactionType       String?
+  currency              String?   @db.Char(3)
+  amount                Decimal?  @db.Decimal(18, 4)
+  sourceCurrency        String?   @db.Char(3)
+  sourceAmount          Decimal?  @db.Decimal(18, 4)
+  authCode              String?
+  merchantId            String?
   merchantCategoryGroup String?
   merchantCategoryCode  String?
   merchantName          String?
   merchantCity          String?
   merchantCountry       String?
-  rawPayload           Json?
-  createdAt            DateTime @default(now())
+  rawPayload            Json?
+  createdAt             DateTime  @default(now())
 
-  card     Card?    @relation(fields: [cardId], references: [id])
-  cardId   String?
-  account  Account? @relation(fields: [accountId], references: [id])
+  card      Card?    @relation(fields: [cardId], references: [id])
+  cardId    String?
+  account   Account? @relation(fields: [accountId], references: [id])
   accountId String?
 }
 
 model Contract {
-  id              String   @id @default(uuid())
-  contractNumber  String   @unique
-  profileCode     String?
-  branchCode      String?
-  statusValue     String?
-  metadata        Json?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(uuid())
+  contractNumber String   @unique
+  profileCode    String?
+  branchCode     String?
+  statusValue    String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
   client   Client? @relation(fields: [clientId], references: [id])
   clientId String?
@@ -126,20 +274,20 @@ model LoyaltyBalance {
   client   Client? @relation(fields: [clientId], references: [id])
   clientId String?
 
-  card     Card?   @relation(fields: [cardId], references: [id])
-  cardId   String?
+  card   Card?   @relation(fields: [cardId], references: [id])
+  cardId String?
 
   operations LoyaltyOperation[]
 }
 
 model LoyaltyOperation {
-  id           String   @id @default(uuid())
+  id            String   @id @default(uuid())
   operationType String?
-  amount       Decimal? @db.Decimal(18, 4)
-  amountType   String?
-  source       String?
-  rawPayload   Json?
-  createdAt    DateTime @default(now())
+  amount        Decimal? @db.Decimal(18, 4)
+  amountType    String?
+  source        String?
+  rawPayload    Json?
+  createdAt     DateTime @default(now())
 
   balance   LoyaltyBalance? @relation(fields: [balanceId], references: [id])
   balanceId String?
@@ -161,29 +309,29 @@ model InstallmentPlan {
 }
 
 model SmsRequest {
-  id            String   @id @default(uuid())
-  mobileNumber  String?
-  requestType   String? // activate, set_pin, activate_set_pin
-  status        String?
-  trackingId    String?
-  requestPayload Json?
+  id              String   @id @default(uuid())
+  mobileNumber    String?
+  requestType     String? // activate, set_pin, activate_set_pin
+  status          String?
+  trackingId      String?
+  requestPayload  Json?
   responsePayload Json?
-  createdAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
 
-  card   Card?  @relation(fields: [cardId], references: [id])
+  card   Card?   @relation(fields: [cardId], references: [id])
   cardId String?
 }
 
 model Lookup {
-  id       String   @id @default(uuid())
-  category String?
-  key      String?
-  value    Json?
+  id        String   @id @default(uuid())
+  category  String?
+  key       String?
+  value     Json?
   createdAt DateTime @default(now())
 }
 
 model RequestAudit {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   requestIdHeader String?
   correlationId   String?
   orgId           String?
@@ -192,5 +340,5 @@ model RequestAudit {
   timestampHeader DateTime?
   rawHeaders      Json?
   rawBody         Json?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 }
