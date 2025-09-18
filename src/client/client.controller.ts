@@ -7,11 +7,24 @@ export class ClientController {
     constructor(private readonly clientService: ClientService) { }
 
     @Post('create')
-    @HttpCode(HttpStatus.OK)
     async createClient(@Body() payload: CreateClientPayload) {
         try {
-            return await this.clientService.createClient(payload);
+            const result = await this.clientService.createClient(payload);
+
+            // Return appropriate status code based on whether client was created or already existed
+            if (result.wasCreated) {
+                // Client was newly created
+                throw new HttpException(result, HttpStatus.CREATED);
+            } else {
+                // Client already existed
+                throw new HttpException(result, HttpStatus.OK);
+            }
         } catch (error) {
+            // Check if this is our intentional status code response
+            if (error instanceof HttpException) {
+                throw error;
+            }
+
             console.error('ClientController.createClient error:', error);
 
             // Return detailed error information

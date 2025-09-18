@@ -28,6 +28,7 @@ model Client {
   installments      InstallmentPlan[]
   contactDetails    ContactDetails?
   personalDetails   PersonalDetails?
+  embossingDetails  EmbossingDetails?
   addressRecords    Address[]
   identityDocuments IdentityDocument[]
   employmentDetails EmploymentDetails?
@@ -87,6 +88,18 @@ model PersonalDetails {
   motherName    String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  client   Client @relation(fields: [clientId], references: [id])
+  clientId String @unique
+}
+
+model EmbossingDetails {
+  id        String   @id @default(uuid())
+  title     String?
+  firstName String?
+  lastName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   client   Client @relation(fields: [clientId], references: [id])
   clientId String @unique
@@ -192,22 +205,17 @@ model DebitOptions {
 }
 
 model Card {
-  id                 String    @id @default(uuid())
-  cardGuid           String?
-  externalCardId     String?
-  maskedCardNumber   String?
-  productCode        String?
-  productBin         String?
-  productName        String?
-  cardRole           String?
-  isVirtual          Boolean   @default(false)
-  cardExpiryDate     String? // e.g. "2812"
-  cardDateOpen       DateTime?
-  cardActivationDate DateTime?
-  status             String?
-  customFields       Json?
-  createdAt          DateTime  @default(now())
+  id             String    @id @default(uuid())
+  productCode    String?
+  cardNumber     String?   @unique // e.g. "403185****212236"
+  cardExpiryDate String? // e.g. "2812"
+  cardDateOpen   DateTime? // format "2023-01-01"
+  isVirtual      Boolean   @default(false)
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
   account   Account? @relation(fields: [accountId], references: [id])
   accountId String?
 

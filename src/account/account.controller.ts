@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, InternalServerErrorException, HttpStatus } from '@nestjs/common';
 import { AccountService } from './account.service';
 import type { CreateAccountPayload, UpdateAccountPayload } from './account.service';
 
@@ -10,13 +10,28 @@ export class AccountController {
     async createAccount(@Body() payload: CreateAccountPayload) {
         try {
             const result = await this.accountService.createAccount(payload);
-            return result;
+
+            // Set appropriate status code based on whether account was created or already existed
+            if (result.wasCreated) {
+                // New account created - return 201 Created
+                return {
+                    success: result.success,
+                    account: result.account,
+                    message: result.message
+                };
+            } else {
+                // Existing account found - return 200 OK
+                const response = {
+                    success: result.success,
+                    account: result.account,
+                    message: result.message
+                };
+
+                throw new HttpException(response, HttpStatus.OK);
+            }
         } catch (error) {
-            return {
-                success: false,
-                message: error.message,
-                error: error.name,
-            };
+            if (error instanceof HttpException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Internal server error');
         }
     }
 
@@ -26,11 +41,8 @@ export class AccountController {
             const result = await this.accountService.getAccount(accountId);
             return result;
         } catch (error) {
-            return {
-                success: false,
-                message: error.message,
-                error: error.name,
-            };
+            if (error instanceof HttpException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Internal server error');
         }
     }
 
@@ -40,11 +52,8 @@ export class AccountController {
             const result = await this.accountService.getAccountsByClient(clientId);
             return result;
         } catch (error) {
-            return {
-                success: false,
-                message: error.message,
-                error: error.name,
-            };
+            if (error instanceof HttpException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Internal server error');
         }
     }
 
@@ -57,11 +66,8 @@ export class AccountController {
             const result = await this.accountService.updateAccount(accountId, payload);
             return result;
         } catch (error) {
-            return {
-                success: false,
-                message: error.message,
-                error: error.name,
-            };
+            if (error instanceof HttpException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Internal server error');
         }
     }
 
@@ -71,11 +77,8 @@ export class AccountController {
             const result = await this.accountService.deleteAccount(accountId);
             return result;
         } catch (error) {
-            return {
-                success: false,
-                message: error.message,
-                error: error.name,
-            };
+            if (error instanceof HttpException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Internal server error');
         }
     }
 }

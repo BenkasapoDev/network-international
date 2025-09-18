@@ -200,6 +200,7 @@ export class ClientService {
             }
 
             // Perform DB transaction
+            let wasClientCreated = false;
             const result = await this.prisma.$transaction(async (tx) => {
                 // Extract client data from personalDetails and other sources
                 const personalDetails = payload.personalDetails || {};
@@ -221,8 +222,6 @@ export class ClientService {
                     payload.client?.id?.value ||
                     customerId;
 
-                let whereClause: any;
-
                 // Check if a client already exists with the same email
                 let existingClientByEmail: any = null;
                 if (primaryEmail) {
@@ -230,6 +229,21 @@ export class ClientService {
                         where: { email: primaryEmail }
                     });
                 }
+
+                // Track if we're creating or updating
+                let existingClient = existingClientByEmail;
+                if (!existingClient) {
+                    // Check by other identifiers if no email match
+                    if (payload.externalClientId) {
+                        existingClient = await tx.client.findUnique({ where: { externalClientId: payload.externalClientId } });
+                    } else if (payload.clientId) {
+                        existingClient = await tx.client.findUnique({ where: { clientId: payload.clientId } });
+                    }
+                }
+
+                wasClientCreated = !existingClient;
+
+                let whereClause: any;
 
                 if (existingClientByEmail) {
                     // If client exists with this email, use its existing identifier for the where clause
@@ -542,15 +556,10 @@ export class ClientService {
                 for (const cardData of cards) {
                     const card = await tx.card.create({
                         data: {
-                            externalCardId: cardData.external_card_id,
-                            maskedCardNumber: cardData.masked_card_number,
+                            cardNumber: cardData.masked_card_number,
                             productCode: cardData.product_code,
-                            productName: cardData.product_name,
-                            cardRole: cardData.card_role,
                             isVirtual: cardData.is_virtual || false,
                             cardExpiryDate: cardData.card_expiry_date,
-                            status: cardData.status,
-                            customFields: cardData.custom_fields,
                             clientId: client.id,
                             accountId: accounts.length > 0 ? accounts[0].id : null,
                         },
@@ -565,7 +574,8 @@ export class ClientService {
                     client,
                     accounts: accounts,
                     cards: createdCards,
-                    auditRecord: 'Created in RequestAudit table'
+                    auditRecord: 'Created in RequestAudit table',
+                    wasCreated: wasClientCreated
                 };
             });
 
@@ -579,6 +589,32 @@ export class ClientService {
             if (error.response) {
                 // External API error
                 console.error('External API error response:', error.response.data);
+                // write audit for failed client create (non-fatal)
+                try {
+                    await this.prisma.requestAudit.create({
+                        data: {
+                            requestIdHeader: `client-create-failed-${payload.clientId || payload.externalClientId || 'unknown'}`,
+                            correlationId: payload.clientId || payload.client?.id?.value || payload.externalClientId || null,
+                            orgId: 'network-international',
+                            srcApp: 'client-service',
+                            channel: 'API',
+                            timestampHeader: new Date(),
+                            rawHeaders: {
+                                'X-Client-Id': payload.clientId || payload.externalClientId || null
+                            },
+                            rawBody: {
+                                payload,
+                                error: {
+                                    message: error.response?.data || error?.message,
+                                    status: error.response?.status
+                                }
+                            } as any
+                        }
+                    });
+                } catch (auditErr) {
+                    console.warn('Failed to write RequestAudit for failed client create:', auditErr?.message || auditErr);
+                }
+
                 throw new Error(`External API failed: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
             }
 
@@ -593,19 +629,21 @@ export class ClientService {
             return {
                 success: true,
                 client_id: customerId,
-                message: 'Client created successfully'
+                message: result.wasCreated ? 'Client created successfully' : 'Client already exists',
+                wasCreated: result.wasCreated
             };
         } else {
             // Comprehensive response with all details
             return {
                 success: true,
                 client_id: customerId,
-                message: 'Client created successfully with comprehensive data',
+                message: result.wasCreated ? 'Client created successfully with comprehensive data' : 'Client already exists with comprehensive data',
                 client: result.client,
                 accounts: result.accounts,
                 cards: result.cards,
                 audit_record: result.auditRecord,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                wasCreated: result.wasCreated
             };
         }
     }

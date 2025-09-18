@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveClientIdFromPayload } from '../prisma/client-resolver';
 
 export interface CreateAccountPayload {
     // Flat structure (for direct calls)
@@ -72,18 +73,28 @@ export class AccountService {
         const profileCode = payload.profileCode || payload.account?.profileCode;
         const branchCode = payload.branchCode || payload.account?.branchCode;
 
-        // Extract client ID from either direct field or nested structure
-        const clientId = payload.clientId || payload.client?.id?.value;
+        // Extract and resolve client ID from various sources
+        let clientId = payload.clientId;
+        if (!clientId) {
+            // use centralized resolver which tries clientId, externalClientNumber, UUID fallback, etc.
+            clientId = await resolveClientIdFromPayload(payload, this.prisma);
+            if (!clientId && payload.client?.id) {
+                const clientIdType = payload.client.id.type;
+                const clientIdValue = payload.client.id.value;
+                throw new NotFoundException(`No client found for ${clientIdType}: ${clientIdValue}`);
+            }
+        }
 
         if (!accountNumber) {
-            throw new Error('accountNumber is required for account creation');
+            throw new BadRequestException('accountNumber is required for account creation');
         }
 
         if (!clientId) {
-            throw new Error('clientId is required for account creation');
+            throw new BadRequestException('clientId is required for account creation');
         }
 
         try {
+            let wasCreated = false;
             const result = await this.prisma.$transaction(async (tx) => {
                 // Check if account already exists by accountNumber or externalAccountId
                 let existingAccount: any = null;
@@ -102,18 +113,31 @@ export class AccountService {
 
                 let account;
                 if (existingAccount) {
-                    // Update existing account
-                    account = await tx.account.update({
-                        where: { id: existingAccount.id },
-                        data: {
-                            accountNumber: accountNumber || existingAccount.accountNumber,
-                            externalAccountId: externalAccountId || existingAccount.externalAccountId,
-                            productCode: productCode,
-                            profileCode: profileCode,
-                            branchCode: branchCode,
-                            clientId: clientId,
-                        },
-                    });
+                    // If existing account belongs to a different client, don't silently reassign
+                    if (existingAccount.clientId && existingAccount.clientId !== clientId) {
+                        throw new ConflictException(`Account with accountNumber/externalAccountId already exists for another client`);
+                    }
+
+                    // If account already exists for the same client, do not recreate it.
+                    // We'll return the existing record and avoid reassigning ownership.
+                    if (existingAccount.clientId && existingAccount.clientId === clientId) {
+                        account = existingAccount;
+                        wasCreated = false;
+                    } else {
+                        // existingAccount exists but has no clientId set - attach to this client
+                        account = await tx.account.update({
+                            where: { id: existingAccount.id },
+                            data: {
+                                accountNumber: accountNumber || existingAccount.accountNumber,
+                                externalAccountId: externalAccountId || existingAccount.externalAccountId,
+                                productCode: productCode,
+                                profileCode: profileCode,
+                                branchCode: branchCode,
+                                clientId: existingAccount.clientId || clientId,
+                            },
+                        });
+                        wasCreated = false;
+                    }
                 } else {
                     // Create new account
                     account = await tx.account.create({
@@ -126,6 +150,7 @@ export class AccountService {
                             clientId: clientId,
                         },
                     });
+                    wasCreated = true;
                 }
 
                 // Upsert CreditOptions if provided
@@ -161,7 +186,7 @@ export class AccountService {
                 }
 
                 // Return account with related data
-                return await tx.account.findUnique({
+                const fullAccount = await tx.account.findUnique({
                     where: { id: account.id },
                     include: {
                         creditOptions: true,
@@ -178,17 +203,89 @@ export class AccountService {
                         },
                     },
                 });
+
+                // Store request audit for traceability
+                try {
+                    await tx.requestAudit.create({
+                        data: {
+                            requestIdHeader: `account-create-${accountNumber}`,
+                            correlationId: clientId,
+                            orgId: 'network-international',
+                            srcApp: 'account-service',
+                            channel: 'API',
+                            timestampHeader: new Date(),
+                            rawHeaders: {
+                                'X-Client-Id': clientId
+                            },
+                            rawBody: {
+                                payload,
+                                account: {
+                                    id: fullAccount?.id,
+                                    accountNumber: fullAccount?.accountNumber,
+                                    externalAccountId: fullAccount?.externalAccountId,
+                                }
+                            } as any
+                        }
+                    });
+                } catch (auditErr) {
+                    // non-fatal: log and continue returning the account
+                    console.warn('Failed to write RequestAudit for account create:', auditErr?.message || auditErr);
+                }
+
+                return fullAccount;
+            });
+
+            // Debugging: log what happened for visibility
+            console.log('createAccount debug:', {
+                resolvedClientId: clientId,
+                resultAccountId: result?.id,
+                resultClientId: result?.clientId,
+                wasCreated,
             });
 
             return {
                 success: true,
                 account: result,
-                message: 'Account created successfully',
+                message: result && result.clientId === clientId && !wasCreated ? 'Account already exists' : 'Account created successfully',
+                wasCreated: wasCreated
             };
 
         } catch (error) {
             console.error('Error in createAccount:', error);
-            throw error;
+            // Write a RequestAudit entry for failed attempts (non-fatal)
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: `account-create-failed-${accountNumber || 'unknown'}`,
+                        correlationId: payload.clientId || payload.client?.id?.value || null,
+                        orgId: 'network-international',
+                        srcApp: 'account-service',
+                        channel: 'API',
+                        timestampHeader: new Date(),
+                        rawHeaders: {
+                            'X-Client-Id': payload.clientId || payload.client?.id?.value || null
+                        },
+                        rawBody: {
+                            payload,
+                            error: {
+                                message: error?.message,
+                                name: error?.name,
+                                code: error?.code || null
+                            }
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for failed account create:', auditErr?.message || auditErr);
+            }
+
+            // Allow known HttpExceptions to propagate to the controller unchanged
+            if (
+                error instanceof NotFoundException ||
+                error instanceof BadRequestException ||
+                error instanceof ConflictException
+            ) throw error;
+            throw new InternalServerErrorException(error?.message || 'Failed to create account');
         }
     }
 
@@ -216,7 +313,7 @@ export class AccountService {
             });
 
             if (!account) {
-                throw new Error('Account not found');
+                throw new NotFoundException('Account not found');
             }
 
             return {
@@ -227,7 +324,8 @@ export class AccountService {
 
         } catch (error) {
             console.error('Error in getAccount:', error);
-            throw error;
+            if (error instanceof NotFoundException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Failed to get account');
         }
     }
 
@@ -253,7 +351,7 @@ export class AccountService {
 
         } catch (error) {
             console.error('Error in getAccountsByClient:', error);
-            throw error;
+            throw new InternalServerErrorException(error?.message || 'Failed to get accounts');
         }
     }
 
@@ -333,7 +431,8 @@ export class AccountService {
 
         } catch (error) {
             console.error('Error in updateAccount:', error);
-            throw error;
+            if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Failed to update account');
         }
     }
 
@@ -367,7 +466,8 @@ export class AccountService {
 
         } catch (error) {
             console.error('Error in deleteAccount:', error);
-            throw error;
+            if (error instanceof NotFoundException) throw error;
+            throw new InternalServerErrorException(error?.message || 'Failed to delete account');
         }
     }
 }
