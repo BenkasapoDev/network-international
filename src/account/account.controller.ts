@@ -1,15 +1,17 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, InternalServerErrorException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, InternalServerErrorException, HttpStatus, Req } from '@nestjs/common';
 import { AccountService } from './account.service';
 import type { CreateAccountPayload, UpdateAccountPayload } from './account.service';
+import type { RequestHeaders } from '../common/header-utils';
 
 @Controller('accounts')
 export class AccountController {
     constructor(private readonly accountService: AccountService) { }
 
     @Post('create')
-    async createAccount(@Body() payload: CreateAccountPayload) {
+    async createAccount(@Body() payload: CreateAccountPayload, @Req() request: any) {
         try {
-            const result = await this.accountService.createAccount(payload);
+            const headers: RequestHeaders = request.validatedHeaders;
+            const result = await this.accountService.createAccount(payload, headers);
 
             // Set appropriate status code based on whether account was created or already existed
             if (result.wasCreated) {

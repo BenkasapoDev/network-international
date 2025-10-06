@@ -162,10 +162,10 @@ Quick steps to connect this project to a MySQL database using Prisma and run mig
 
 ## External API (ClientCreate)
 
-This project forwards client-create requests to an external service. Configure the external API base URL with the `EXTERNAL_API_BASE` environment variable (defaults to the sandbox URL):
+This project forwards client-create requests to an external service. Configure the external API base URL with the `EXTERNAL_API_BASE_URL` environment variable (defaults to the sandbox URL):
 
 ```properties
-EXTERNAL_API_BASE="https://api-sandbox.network.global"
+EXTERNAL_API_BASE_URL="https://api-sandbox.network.global"
 ```
 
 The local endpoint is:
@@ -182,6 +182,6 @@ npm run start:dev
 Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/client/create' -ContentType 'application/json' -Body (Get-Content .\clientCreate.json -Raw)
 ```
 
-The service will perform local DB upserts and then forward the original payload to `${EXTERNAL_API_BASE}/V2/cardservices/ClientCreate`. The response JSON includes the local `customerId` and the external API status/data (or an `external.error` field if the forward failed).
+The service will perform local DB upserts and then forward the original payload to `${EXTERNAL_API_BASE_URL}/V2/cardservices/ClientCreate`. The response JSON includes the local `customerId` and the external API status/data (or an `external.error` field if the forward failed).
 
 

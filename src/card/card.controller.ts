@@ -1,20 +1,22 @@
-import { Controller, Post, Get, Delete, Body, Param, HttpException, InternalServerErrorException, BadRequestException, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, HttpException, InternalServerErrorException, BadRequestException, HttpStatus, HttpCode, Req } from '@nestjs/common';
 import { CardService } from './card.service';
 import type { CreateCardPayload } from './card.service';
+import type { RequestHeaders } from '../common/header-utils';
 
 @Controller('cards')
 export class CardController {
     constructor(private readonly cardService: CardService) { }
 
     @Post('create')
-    async createCard(@Body() payload: CreateCardPayload) {
+    async createCard(@Body() payload: CreateCardPayload, @Req() request: any) {
         try {
             console.log('CardController.createCard received payload:', JSON.stringify(payload));
             if (!payload || (typeof payload === 'object' && Object.keys(payload).length === 0)) {
                 throw new BadRequestException('Empty request body. Ensure Content-Type: application/json and a JSON body is sent.');
             }
 
-            const result = await this.cardService.createCard(payload);
+            const headers: RequestHeaders = request.validatedHeaders;
+            const result = await this.cardService.createCard(payload, headers);
 
             // Set appropriate status code based on whether card was created or updated
             if (result.wasCreated) {

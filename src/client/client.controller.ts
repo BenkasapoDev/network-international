@@ -1,15 +1,17 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, HttpException, HttpStatus as HttpStatusCode } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, HttpException, HttpStatus as HttpStatusCode, Req } from '@nestjs/common';
 import { ClientService } from './client.service';
-import type { CreateClientPayload } from './client.service';
+import type { CreateClientPayload, GetClientDetailsPayload } from './client.service';
+import type { RequestHeaders } from '../common/header-utils';
 
 @Controller('clients')
 export class ClientController {
     constructor(private readonly clientService: ClientService) { }
 
     @Post('create')
-    async createClient(@Body() payload: CreateClientPayload) {
+    async createClient(@Body() payload: CreateClientPayload, @Req() request: any) {
         try {
-            const result = await this.clientService.createClient(payload);
+            const headers: RequestHeaders = request.validatedHeaders;
+            const result = await this.clientService.createClient(payload, headers);
 
             // Return appropriate status code based on whether client was created or already existed
             if (result.wasCreated) {
@@ -26,6 +28,53 @@ export class ClientController {
             }
 
             console.error('ClientController.createClient error:', error);
+
+            // Return detailed error information
+            if (error.response) {
+                // External API error
+                throw new HttpException({
+                    statusCode: error.response.status || 500,
+                    message: `External API Error: ${error.message}`,
+                    error: 'External API Failure',
+                    details: {
+                        externalStatus: error.response.status,
+                        externalData: error.response.data,
+                        url: error.config?.url
+                    }
+                }, error.response.status || HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    error: 'Configuration Error',
+                    details: {
+                        input: error.input,
+                        code: error.code
+                    }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else {
+                // Generic error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error.message || 'Internal server error',
+                    error: 'Internal Server Error',
+                    details: {
+                        stack: error.stack,
+                        name: error.name
+                    }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    @Post('details')
+    async getClientDetails(@Body() payload: GetClientDetailsPayload, @Req() request: any) {
+        try {
+            const headers: RequestHeaders = request.validatedHeaders;
+            return await this.clientService.getClientDetails(payload, headers);
+        } catch (error) {
+            console.error('ClientController.getClientDetails error:', error);
 
             // Return detailed error information
             if (error.response) {

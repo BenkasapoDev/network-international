@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveClientIdFromPayload } from '../prisma/client-resolver';
+import type { RequestHeaders } from '../common/header-utils';
 
 export interface CreateAccountPayload {
     // Flat structure (for direct calls)
@@ -63,7 +64,7 @@ export interface UpdateAccountPayload {
 export class AccountService {
     constructor(private prisma: PrismaService) { }
 
-    async createAccount(payload: CreateAccountPayload) {
+    async createAccount(payload: CreateAccountPayload, headers: RequestHeaders) {
         console.log('AccountService.createAccount called with payload:', JSON.stringify(payload, null, 2));
 
         // Extract account details from either flat or nested structure
@@ -208,15 +209,13 @@ export class AccountService {
                 try {
                     await tx.requestAudit.create({
                         data: {
-                            requestIdHeader: `account-create-${accountNumber}`,
-                            correlationId: clientId,
-                            orgId: 'network-international',
-                            srcApp: 'account-service',
-                            channel: 'API',
-                            timestampHeader: new Date(),
-                            rawHeaders: {
-                                'X-Client-Id': clientId
-                            },
+                            requestIdHeader: headers.requestId,
+                            correlationId: headers.correlationId,
+                            orgId: headers.orgId,
+                            srcApp: headers.srcApp,
+                            channel: headers.channel,
+                            timestampHeader: headers.timestamp,
+                            rawHeaders: headers as any,
                             rawBody: {
                                 payload,
                                 account: {
@@ -256,15 +255,13 @@ export class AccountService {
             try {
                 await this.prisma.requestAudit.create({
                     data: {
-                        requestIdHeader: `account-create-failed-${accountNumber || 'unknown'}`,
-                        correlationId: payload.clientId || payload.client?.id?.value || null,
-                        orgId: 'network-international',
-                        srcApp: 'account-service',
-                        channel: 'API',
-                        timestampHeader: new Date(),
-                        rawHeaders: {
-                            'X-Client-Id': payload.clientId || payload.client?.id?.value || null
-                        },
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
                         rawBody: {
                             payload,
                             error: {

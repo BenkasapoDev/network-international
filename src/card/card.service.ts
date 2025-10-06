@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveClientIdFromPayload } from '../prisma/client-resolver';
+import type { RequestHeaders } from '../common/header-utils';
 
 export interface CreateCardPayload {
     externalCardId?: string;
@@ -145,7 +146,7 @@ export class CardService {
         return accountId;
     }
 
-    async createCard(payload: CreateCardPayload) {
+    async createCard(payload: CreateCardPayload, headers: RequestHeaders) {
         console.log('CardService.createCard called with payload:', JSON.stringify(payload, null, 2));
 
         // Extract fields
@@ -230,15 +231,13 @@ export class CardService {
                 try {
                     await tx.requestAudit.create({
                         data: {
-                            requestIdHeader: `card-create-${cardNumber}`,
-                            correlationId: clientId || null,
-                            orgId: 'network-international',
-                            srcApp: 'card-service',
-                            channel: 'API',
-                            timestampHeader: new Date(),
-                            rawHeaders: {
-                                'X-Client-Id': clientId || null
-                            },
+                            requestIdHeader: headers.requestId,
+                            correlationId: headers.correlationId,
+                            orgId: headers.orgId,
+                            srcApp: headers.srcApp,
+                            channel: headers.channel,
+                            timestampHeader: headers.timestamp,
+                            rawHeaders: headers as any,
                             rawBody: {
                                 payload,
                                 card: {
@@ -260,15 +259,13 @@ export class CardService {
                 try {
                     await this.prisma.requestAudit.create({
                         data: {
-                            requestIdHeader: `card-create-failed-${cardNumber || 'unknown'}`,
-                            correlationId: (payload as any).clientId || payload.client?.id?.value || null,
-                            orgId: 'network-international',
-                            srcApp: 'card-service',
-                            channel: 'API',
-                            timestampHeader: new Date(),
-                            rawHeaders: {
-                                'X-Client-Id': (payload as any).clientId || payload.client?.id?.value || null
-                            },
+                            requestIdHeader: headers.requestId,
+                            correlationId: headers.correlationId,
+                            orgId: headers.orgId,
+                            srcApp: headers.srcApp,
+                            channel: headers.channel,
+                            timestampHeader: headers.timestamp,
+                            rawHeaders: headers as any,
                             rawBody: {
                                 payload,
                                 error: {

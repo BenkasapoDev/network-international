@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
+import type { RequestHeaders } from '../common/header-utils';
 
 export interface Address {
     addressLine1?: string;
@@ -130,15 +131,28 @@ export interface CreateClientPayload {
     };
 }
 
+export interface GetClientDetailsPayload {
+    client?: {
+        id?: {
+            value?: string;
+            type?: string;
+            additionalQualifiers?: {
+                type?: string;
+                value?: string;
+            };
+        };
+    };
+}
+
 @Injectable()
 export class ClientService {
     private readonly externalApiBase: string;
 
     constructor(private prisma: PrismaService) {
-        this.externalApiBase = process.env.EXTERNAL_API_BASE || '';
+        this.externalApiBase = process.env.EXTERNAL_API_BASE_URL || '';
     }
 
-    async createClient(payload: CreateClientPayload) {
+    async createClient(payload: CreateClientPayload, headers: RequestHeaders) {
         console.log('ClientService.createClient called with payload:', JSON.stringify(payload, null, 2));
 
         try {
@@ -467,16 +481,13 @@ export class ClientService {
                 // Store comprehensive client data in RequestAudit for reference
                 await tx.requestAudit.create({
                     data: {
-                        requestIdHeader: `client-create-${customerId}`,
-                        correlationId: customerId,
-                        orgId: 'network-international',
-                        srcApp: 'client-service',
-                        channel: 'API',
-                        timestampHeader: new Date(),
-                        rawHeaders: {
-                            'Content-Type': 'application/json',
-                            'X-Client-Id': customerId
-                        },
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
                         rawBody: {
                             originalPayload: payload,
                             externalResponse: externalResponse.data,
@@ -593,15 +604,13 @@ export class ClientService {
                 try {
                     await this.prisma.requestAudit.create({
                         data: {
-                            requestIdHeader: `client-create-failed-${payload.clientId || payload.externalClientId || 'unknown'}`,
-                            correlationId: payload.clientId || payload.client?.id?.value || payload.externalClientId || null,
-                            orgId: 'network-international',
-                            srcApp: 'client-service',
-                            channel: 'API',
-                            timestampHeader: new Date(),
-                            rawHeaders: {
-                                'X-Client-Id': payload.clientId || payload.externalClientId || null
-                            },
+                            requestIdHeader: headers.requestId,
+                            correlationId: headers.correlationId,
+                            orgId: headers.orgId,
+                            srcApp: headers.srcApp,
+                            channel: headers.channel,
+                            timestampHeader: headers.timestamp,
+                            rawHeaders: headers as any,
                             rawBody: {
                                 payload,
                                 error: {
@@ -645,6 +654,119 @@ export class ClientService {
                 created_at: new Date().toISOString(),
                 wasCreated: result.wasCreated
             };
+        }
+    }
+
+    async getClientDetails(payload: GetClientDetailsPayload, headers: RequestHeaders) {
+        console.log('ClientService.getClientDetails called with payload:', JSON.stringify(payload, null, 2));
+
+        try {
+            // Call external API to get client details
+            console.log('Calling external API for client details:', `${this.externalApiBase}/clients/details`);
+
+            const externalResponse = await axios.post(
+                `${this.externalApiBase}/clients/details`,
+                payload,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (process.env.EXTERNAL_API_TOKEN || 'sandbox-token'),
+                        'X-Client-ID': payload.client?.id?.value || 'default-client',
+                        'X-Request-ID': headers.requestId,
+                        'X-Correlation-ID': headers.correlationId,
+                        'X-OrgId': headers.orgId,
+                        'X-Timestamp': headers.timestamp.toISOString(),
+                        'X-SrcApp': headers.srcApp,
+                        'X-Channel': headers.channel,
+                    },
+                    timeout: 30000,
+                }
+            );
+
+            console.log('External API response for client details:', JSON.stringify(externalResponse?.data, null, 2));
+
+            // Store request audit for traceability
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetails',
+                            payload,
+                            externalResponse: externalResponse?.data
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for client details:', auditErr?.message || auditErr);
+            }
+
+            return {
+                success: true,
+                clientDetails: externalResponse?.data,
+                message: 'Client details retrieved successfully',
+                requestId: headers.requestId,
+                correlationId: headers.correlationId
+            };
+
+        } catch (error) {
+            console.error('Error in getClientDetails:', error);
+
+            // Write audit for failed attempts (non-fatal)
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetails',
+                            payload,
+                            error: {
+                                message: error.response?.data || error?.message,
+                                status: error.response?.status
+                            }
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for failed client details:', auditErr?.message || auditErr);
+            }
+
+            // Return detailed error information
+            if (error.response) {
+                // External API error
+                throw new InternalServerErrorException({
+                    message: `External API Error: ${error.message}`,
+                    externalStatus: error.response.status,
+                    externalData: error.response.data,
+                    url: error.config?.url
+                });
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new InternalServerErrorException({
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    input: error.input,
+                    code: error.code
+                });
+            } else {
+                // Generic error
+                throw new InternalServerErrorException({
+                    message: error.message || 'Failed to retrieve client details',
+                    stack: error.stack,
+                    name: error.name
+                });
+            }
         }
     }
 }
