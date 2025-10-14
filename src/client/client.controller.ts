@@ -68,6 +68,7 @@ export class ClientController {
         }
     }
 
+
     @Post('details')
     async getClientDetails(@Body() payload: GetClientDetailsPayload, @Req() request: any) {
         try {
@@ -76,18 +77,130 @@ export class ClientController {
         } catch (error) {
             console.error('ClientController.getClientDetails error:', error);
 
-            // Return detailed error information
-            if (error.response) {
-                // External API error
+            // Preserve and rethrow HttpExceptions (so original statusCode is returned)
+            if (error instanceof HttpException) {
+                throw error;
+            }
+
+            const detailsObj = {
+                externalStatus: error?.response?.status,
+                externalData: error?.response?.data,
+                url: error?.config?.url
+            };
+
+            if (error?.response) {
+                // External API error (e.g. Axios)
                 throw new HttpException({
-                    statusCode: error.response.status || 500,
-                    message: `External API Error: ${error.message}`,
+                    statusCode: error?.response?.status || HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error?.message,
                     error: 'External API Failure',
+                    details: detailsObj
+                }, error.response.status || HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    error: 'Configuration Error',
                     details: {
-                        externalStatus: error.response.status,
-                        externalData: error.response.data,
-                        url: error.config?.url
+                        input: error.input,
+                        code: error.code
                     }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else {
+                // Generic error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error.message || 'Internal server error',
+                    error: 'Internal Server Error',
+                    details: {
+                        stack: error.stack,
+                        name: error.name
+                    }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    @Post('detailsByAccount')
+    async getClientDetailsByAccount(@Body() payload: any, @Req() request: any) {
+        try {
+            const headers: RequestHeaders = request.validatedHeaders;
+            return await this.clientService.getClientDetailsByAccount(payload, headers);
+        } catch (error) {
+            console.error('ClientController.getClientDetailsByAccount error:', error);
+
+            // Preserve and rethrow HttpExceptions (so original statusCode is returned)
+            if (error instanceof HttpException) {
+                throw error;
+            }
+
+            const detailsObj = {
+                externalStatus: error?.response?.status,
+                externalData: error?.response?.data,
+                url: error?.config?.url
+            };
+
+            if (error?.response) {
+                // External API error (e.g. Axios)
+                throw new HttpException({
+                    statusCode: error?.response?.status || HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error?.message,
+                    error: 'External API Failure',
+                    details: detailsObj
+                }, error.response.status || HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    error: 'Configuration Error',
+                    details: {
+                        input: error.input,
+                        code: error.code
+                    }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            } else {
+                // Generic error
+                throw new HttpException({
+                    statusCode: HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error.message || 'Internal server error',
+                    error: 'Internal Server Error',
+                    details: {
+                        stack: error.stack,
+                        name: error.name
+                    }
+                }, HttpStatusCode.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    @Post('detailsByCard')
+    async getClientDetailsByCard(@Body() payload: any, @Req() request: any) {
+        try {
+            const headers: RequestHeaders = request.validatedHeaders;
+            return await this.clientService.getClientDetailsByCard(payload, headers);
+        } catch (error) {
+            console.error('ClientController.getClientDetailsByCard error:', error);
+
+            // Preserve and rethrow HttpExceptions (so original statusCode is returned)
+            if (error instanceof HttpException) {
+                throw error;
+            }
+
+            const detailsObj = {
+                externalStatus: error?.response?.status,
+                externalData: error?.response?.data,
+                url: error?.config?.url
+            };
+
+            if (error?.response) {
+                // External API error (e.g. Axios)
+                throw new HttpException({
+                    statusCode: error?.response?.status || HttpStatusCode.INTERNAL_SERVER_ERROR,
+                    message: error?.message,
+                    error: 'External API Failure',
+                    details: detailsObj
                 }, error.response.status || HttpStatusCode.INTERNAL_SERVER_ERROR);
             } else if (error.code === 'ERR_INVALID_URL') {
                 // URL configuration error

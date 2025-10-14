@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from 'axios';
 import type { RequestHeaders } from '../common/header-utils';
@@ -140,6 +140,32 @@ export interface GetClientDetailsPayload {
                 type?: string;
                 value?: string;
             };
+        };
+    };
+}
+
+export interface GetClientDetailsByAccountPayload {
+    account?: {
+        id?: {
+            value?: string;
+            type?: string;
+            additionalQualifiers?: {
+                type?: string | null;
+                value?: string | null;
+            };
+        };
+    };
+}
+
+export interface GetClientDetailsByCardPayload {
+    card?: {
+        id?: {
+            value?: string;
+            type?: string;
+            additionalQualifiers?: Array<{
+                value?: string;
+                type?: string;
+            }>;
         };
     };
 }
@@ -594,12 +620,12 @@ export class ClientService {
 
         } catch (error) {
             console.log('Error in createClient:', error?.message);
-            console.error('Error in createClient:', error);
+            console.error('Error in createClient:', error?.response);
 
 
             if (error.response) {
-                // External API error
-                console.error('External API error response:', error.response.data);
+                // External API error - log and audit, then re-throw original error to preserve structure
+                console.error('External API error response*******:', error?.response?.data);
                 // write audit for failed client create (non-fatal)
                 try {
                     await this.prisma.requestAudit.create({
@@ -624,9 +650,11 @@ export class ClientService {
                     console.warn('Failed to write RequestAudit for failed client create:', auditErr?.message || auditErr);
                 }
 
-                throw new Error(`External API failed: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+                // Re-throw the original Axios error to preserve error.response structure
+                throw error;
             }
 
+            // Re-throw the original error to preserve error structure for controller
             throw error;
         }
     }
@@ -716,7 +744,8 @@ export class ClientService {
             };
 
         } catch (error) {
-            console.error('Error in getClientDetails:', error);
+            console.error('Error in getClientDetails:', error?.response);
+            //console.log('Error in getClientDetails:', error?.message);
 
             // Write audit for failed attempts (non-fatal)
             try {
@@ -743,15 +772,20 @@ export class ClientService {
                 console.warn('Failed to write RequestAudit for failed client details:', auditErr?.message || auditErr);
             }
 
+            const detailsObj = {
+                externalStatus: error.response?.status,
+                externalData: error.response?.data,
+                url: error.config?.url
+            }
             // Return detailed error information
             if (error.response) {
                 // External API error
-                throw new InternalServerErrorException({
+                throw new HttpException({
+                    statusCode: error.response.status,
                     message: `External API Error: ${error.message}`,
-                    externalStatus: error.response.status,
-                    externalData: error.response.data,
-                    url: error.config?.url
-                });
+                    error: 'External API Failure',
+                    details: detailsObj
+                }, error.response.status);
             } else if (error.code === 'ERR_INVALID_URL') {
                 // URL configuration error
                 throw new InternalServerErrorException({
@@ -763,6 +797,242 @@ export class ClientService {
                 // Generic error
                 throw new InternalServerErrorException({
                     message: error.message || 'Failed to retrieve client details',
+                    stack: error.stack,
+                    name: error.name
+                });
+            }
+        }
+    }
+
+    async getClientDetailsByAccount(payload: GetClientDetailsByAccountPayload, headers: RequestHeaders) {
+        console.log('ClientService.getClientDetailsByAccount called with payload:', JSON.stringify(payload, null, 2));
+
+        try {
+            // Call external API to get client details by account
+            console.log('Calling external API for client details by account:', `${this.externalApiBase}/clients/detailsByAccount`);
+
+            const externalResponse = await axios.post(
+                `${this.externalApiBase}/clients/detailsByAccount`,
+                payload,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (process.env.EXTERNAL_API_TOKEN || 'sandbox-token'),
+                        'X-Client-ID': payload.account?.id?.value || 'default-client',
+                        'X-Request-ID': headers.requestId,
+                        'X-Correlation-ID': headers.correlationId,
+                        'X-OrgId': headers.orgId,
+                        'X-Timestamp': headers.timestamp.toISOString(),
+                        'X-SrcApp': headers.srcApp,
+                        'X-Channel': headers.channel,
+                    },
+                    timeout: 30000,
+                }
+            );
+
+            console.log('External API response for client details by account:', JSON.stringify(externalResponse?.data, null, 2));
+
+            // Store request audit for traceability
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetailsByAccount',
+                            payload,
+                            externalResponse: externalResponse?.data
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for client details by account:', auditErr?.message || auditErr);
+            }
+
+            return {
+                success: true,
+                clientDetails: externalResponse?.data,
+                message: 'Client details by account retrieved successfully',
+                requestId: headers.requestId,
+                correlationId: headers.correlationId
+            };
+
+        } catch (error) {
+            console.error('Error in getClientDetailsByAccount:', error?.response);
+
+            // Write audit for failed attempts (non-fatal)
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetailsByAccount',
+                            payload,
+                            error: {
+                                message: error.response?.data || error?.message,
+                                status: error.response?.status
+                            }
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for failed client details by account:', auditErr?.message || auditErr);
+            }
+
+            const detailsObj = {
+                externalStatus: error.response?.status,
+                externalData: error.response?.data,
+                url: error.config?.url
+            }
+
+            if (error.response) {
+                // External API error
+                throw new HttpException({
+                    statusCode: error.response.status,
+                    message: `External API Error: ${error.message}`,
+                    error: 'External API Failure',
+                    details: detailsObj
+                }, error.response.status);
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new InternalServerErrorException({
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    input: error.input,
+                    code: error.code
+                });
+            } else {
+                // Generic error
+                throw new InternalServerErrorException({
+                    message: error.message || 'Failed to retrieve client details by account',
+                    stack: error.stack,
+                    name: error.name
+                });
+            }
+        }
+    }
+
+    async getClientDetailsByCard(payload: GetClientDetailsByCardPayload, headers: RequestHeaders) {
+        console.log('ClientService.getClientDetailsByCard called with payload:', JSON.stringify(payload, null, 2));
+
+        try {
+            // Call external API to get client details by card
+            console.log('Calling external API for client details by card:', `${this.externalApiBase}/clients/detailsByCard`);
+
+            const externalResponse = await axios.post(
+                `${this.externalApiBase}/clients/detailsByCard`,
+                payload,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (process.env.EXTERNAL_API_TOKEN || 'sandbox-token'),
+                        'X-Client-ID': payload.card?.id?.value || 'default-client',
+                        'X-Request-ID': headers.requestId,
+                        'X-Correlation-ID': headers.correlationId,
+                        'X-OrgId': headers.orgId,
+                        'X-Timestamp': headers.timestamp.toISOString(),
+                        'X-SrcApp': headers.srcApp,
+                        'X-Channel': headers.channel,
+                    },
+                    timeout: 30000,
+                }
+            );
+
+            console.log('External API response for client details by card:', JSON.stringify(externalResponse?.data, null, 2));
+
+            // Store request audit for traceability
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetailsByCard',
+                            payload,
+                            externalResponse: externalResponse?.data
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for client details by card:', auditErr?.message || auditErr);
+            }
+
+            return {
+                success: true,
+                clientDetails: externalResponse?.data,
+                message: 'Client details by card retrieved successfully',
+                requestId: headers.requestId,
+                correlationId: headers.correlationId
+            };
+
+        } catch (error) {
+            console.error('Error in getClientDetailsByCard:', error?.response);
+
+            // Write audit for failed attempts (non-fatal)
+            try {
+                await this.prisma.requestAudit.create({
+                    data: {
+                        requestIdHeader: headers.requestId,
+                        correlationId: headers.correlationId,
+                        orgId: headers.orgId,
+                        srcApp: headers.srcApp,
+                        channel: headers.channel,
+                        timestampHeader: headers.timestamp,
+                        rawHeaders: headers as any,
+                        rawBody: {
+                            operation: 'getClientDetailsByCard',
+                            payload,
+                            error: {
+                                message: error.response?.data || error?.message,
+                                status: error.response?.status
+                            }
+                        } as any
+                    }
+                });
+            } catch (auditErr) {
+                console.warn('Failed to write RequestAudit for failed client details by card:', auditErr?.message || auditErr);
+            }
+
+            const detailsObj = {
+                externalStatus: error.response?.status,
+                externalData: error.response?.data,
+                url: error.config?.url
+            }
+
+            if (error.response) {
+                // External API error
+                throw new HttpException({
+                    statusCode: error.response.status,
+                    message: `External API Error: ${error.message}`,
+                    error: 'External API Failure',
+                    details: detailsObj
+                }, error.response.status);
+            } else if (error.code === 'ERR_INVALID_URL') {
+                // URL configuration error
+                throw new InternalServerErrorException({
+                    message: `Invalid URL Configuration: ${error.message}`,
+                    input: error.input,
+                    code: error.code
+                });
+            } else {
+                // Generic error
+                throw new InternalServerErrorException({
+                    message: error.message || 'Failed to retrieve client details by card',
                     stack: error.stack,
                     name: error.name
                 });
