@@ -22,7 +22,7 @@ export class SecurityController {
       return await this.securityService.setpin(payload, headers);
     } catch (error) {
       console.log('Error in SecurityController.setpin:', error);
-      //throw new Error(`Failed to set PIN: ${error?.message|| 'Unknown error'}`);
+      throw new Error(`Failed to set PIN: ${error?.message || 'Unknown error'}`);  // Fixed: Re-throw to propagate error
     }
   }
 }

@@ -108,12 +108,24 @@ async function main() {
         }
     })
 
-    // Create account
-    const account = await prisma.account.upsert({
-        where: { accountIdentifier: 'ACC-SEED-001' },
+    // Create embossing details
+    await prisma.embossingDetails.upsert({
+        where: { clientId: client.id },
         update: {},
         create: {
-            accountIdentifier: 'ACC-SEED-001',
+            clientId: client.id,
+            title: 'MR',
+            firstName: 'John',
+            lastName: 'Doe'
+        }
+    })
+
+    // Create account
+    const account = await prisma.account.upsert({
+        where: { accountNumber: 'ACC-SEED-001' },
+        update: {},
+        create: {
+            accountNumber: 'ACC-SEED-001',
             clientId: client.id,
             currency: 'AED',
             status: 'ACTIVE',
@@ -122,18 +134,16 @@ async function main() {
     })
 
     // Create card
-    await prisma.card.create({
-        data: {
+    await prisma.card.upsert({
+        where: { cardNumber: '1234567890123456' },
+        update: {},
+        create: {
             clientId: client.id,
             accountId: account.id,
-            externalCardId: 'CARD-SEED-001',
-            maskedCardNumber: '1234****5678',
+            cardNumber: '1234567890123456',
             productCode: 'PROD001',
-            productName: 'Premium Credit Card',
-            cardRole: 'PRIMARY',
-            isVirtual: false,
             cardExpiryDate: '1225',
-            status: 'ACTIVE'
+            isVirtual: false
         }
     })
 
